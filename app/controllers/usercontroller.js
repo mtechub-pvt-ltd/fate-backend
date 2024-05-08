@@ -1006,8 +1006,10 @@ const updateUserOnlineStatus = async (req, res) => {
     const { id } = req.params;
     const { online_status } = req.body;
 
+
     // Validate input
     if (online_status === undefined || online_status === null) {
+      console.error("Error updating user online_status:", error);
       return res
         .status(400)
         .json({ error: true, msg: "Please provide the online_status value." });
