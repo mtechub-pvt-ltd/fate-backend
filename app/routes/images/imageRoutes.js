@@ -7,8 +7,11 @@ const multer = require('multer');
 
 const upload = multer({ dest: 'uploads/' });
 
-router.post('/v1/uploadimage', upload.single('image'), imageController.uploadimage);
-router.delete('/v1/deleteimage', imageController.deleteimage);
-router.get('/v1/getAllimages', imageController.getAllimages);
-
+router.post('/v1/uploadimage',
+    upload.single('image'), imageController.uploadimage);
+router.delete('/v1/deleteimage',
+    imageController.deleteimage);
+router.get('/v1/getAllimages',
+    imageController.getAllimages);
+// lsasalh k but this is the correct one
 module.exports = router;
