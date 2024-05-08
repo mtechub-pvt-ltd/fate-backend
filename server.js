@@ -7,13 +7,14 @@ const app = express();
 const port = 5021;
 const socketIo = require('socket.io');
 const http = require('http');
+// this sis my data base connection
 
 dotenv.config();
 
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 app.use(cors({
-  methods: ['GET', 'POST', 'DELETE', 'UPDATE', 'PUT', 'PATCH'],
+  methods: 'GET,POST,PUT,DELETE',
 }));
 
 app.use(express.json())
