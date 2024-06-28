@@ -50,6 +50,7 @@
     "summary": "^2.1.0",
     "textract": "^2.5.0",
     "tldr": "^3.4.0",
-    "validator": "^13.11.0"
+    "validator": "^13.11.0",
+    "webrtc-adapter": "^9.0.1"
   }
 }

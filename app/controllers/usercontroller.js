@@ -1201,6 +1201,7 @@ const getMatchUsersController = async (req, res) => {
     const x = current_user_gender.toUpperCase() === "MALE" ? 5 : 7;
     const fetch_gender =
       current_user_gender.toUpperCase() === "MALE" ? "FEMALE" : "MALE";
+
     // Fetch current user details including Elo score
     const currentUserQuery = `SELECT * FROM users WHERE id = $1`;
     const currentUserResult = await pool.query(currentUserQuery, [
@@ -1220,6 +1221,11 @@ const getMatchUsersController = async (req, res) => {
       current_user_id,
     ]);
     const currentUserAnswers = currentUserAnswersResult.rows;
+
+    // Check if currentUserAnswers is defined and not empty
+    if (!currentUserAnswers || currentUserAnswers.length === 0) {
+      throw new Error("No answers found for the current user.");
+    }
 
     // Fetch potential matches within the Elo score range
     const fetchMatchesQuery = `
@@ -1244,6 +1250,12 @@ const getMatchUsersController = async (req, res) => {
           match.id,
         ]);
         const matchAnswers = matchAnswersResult.rows;
+
+        // Check if matchAnswers is defined and not empty
+        if (!matchAnswers || matchAnswers.length === 0) {
+          throw new Error(`No answers found for the match user with ID ${match.id}.`);
+        }
+
         const compatibilityScore = calculateCompatibilityScore(
           currentUserAnswers,
           matchAnswers
@@ -1266,30 +1278,24 @@ const getMatchUsersController = async (req, res) => {
       (a, b) => b.compatibilityScore - a.compatibilityScore
     );
 
-
-    // insert the user log 
+    // Insert the user log
     const count_user_Log_Query = "SELECT * FROM user_logs WHERE current_user_id= $1";
     const count_user_Log_Run = await pool.query(count_user_Log_Query, [parseInt(current_user_id)]);
     console.log("count_user_Log_Run", count_user_Log_Run.rows.length);
 
     if (count_user_Log_Run.rows.length > 0) {
       const delete_user_Log_Query = "DELETE FROM user_logs WHERE current_user_id= $1";
-      const delete_user_Log_Run = await pool.query(delete_user_Log_Query, [parseInt(current_user_id)]);
+      await pool.query(delete_user_Log_Query, [parseInt(current_user_id)]);
     }
 
     for (const match of sortedMatch) {
-
-
       const user_Log_Query = "INSERT INTO user_logs (current_user_id,match_user_id,compatibilityScore) VALUES ($1, $2,$3)";
-      const newLocation = await pool.query(user_Log_Query, [
+      await pool.query(user_Log_Query, [
         parseInt(current_user_id),
         match.user_id,
         match.compatibilityScore,
       ]);
     }
-
-
-
 
     // Respond with the sorted matches and current user details
     res.status(200).json({
@@ -1316,6 +1322,7 @@ const getMatchUsersController = async (req, res) => {
     });
   }
 };
+
 
 const getMatchUsersFromLog = async (req, res) => {
   try {
@@ -1344,6 +1351,108 @@ const getMatchUsersFromLog = async (req, res) => {
         images: matchUser.images,
         profile_image: matchUser.profile_image,
         compatibilityScore: user.compatibilityscore,
+      });
+    }
+
+
+
+
+    // // Fetch matches for the current user
+    // const matchesQuery = `
+    //   SELECT * FROM user_logs 
+    //   WHERE current_user_id = $1 -- Exclude current user 
+    //   ORDER BY compatibility_score DESC -- Order by compatibility score
+    // `;
+    // const matchesResult = await pool.query(matchesQuery, [current_user_id]);
+    // const matches = matchesResult.rows;
+
+    // Format the response
+    // const formattedResponse = {
+    //   error: false,
+    //   msg: "Top users fetched",
+    //   current_user_gender: currentUser.current_user_gender, // Assuming current_user_gender is stored in the log table
+    //   current_user_id: currentUser.current_user_id,
+    //   currentUser: {
+    //     id: currentUser.current_user_id,
+    //     elo_level: currentUser.match_user_elo_level,
+    //     name: currentUser.match_user_name,
+    //     email: currentUser.match_user_email,
+    //     images: currentUser.match_user_images,
+    //     profile_image: currentUser.match_user_profile_image
+    //   },
+    //   matches: matches.map(match => ({
+    //     user_id: match.match_user_id,
+    //     elo_level: match.match_user_elo_level,
+    //     name: match.match_user_name,
+    //     email: match.match_user_email,
+    //     images: match.match_user_images,
+    //     profile_image: match.match_user_profile_image,
+    //     compatibilityScore: match.compatibility_score
+    //   })
+    // )
+    // };
+
+    const formattedResponse = {
+      // currentUser: currentUser.rows
+      error: false,
+      msg: "Top users fetched",
+      current_user_id: parseInt(current_user_id),
+      currentUser: {
+        id: currentUserResult.rows[0].id,
+        elo_level: currentUserResult.rows[0].alo_level,
+        name: currentUserResult.rows[0].name,
+        email: currentUserResult.rows[0].email,
+        images: currentUserResult.rows[0].images,
+        profile_image: currentUserResult.rows[0].profile_image
+      },
+      matches: matches
+    };
+
+    res.status(200).json(formattedResponse);
+  } catch (error) {
+    console.error("Error in fetching user matches:", error);
+    res.status(500).json({
+      error: true,
+      msg: "Internal server error",
+      details: error.message
+    });
+  }
+}
+const getMatchUsersForChat = async (req, res) => {
+  try {
+    const { current_user_id } = req.query;
+
+    // Fetch current user details including Elo score
+    const currentUserQuery = `SELECT * FROM users WHERE id = $1`;
+    const currentUserResult = await pool.query(currentUserQuery, [current_user_id]);
+
+    // Fetch log for the current user
+    const userLogQuery = `SELECT * FROM user_logs WHERE current_user_id = $1`;
+    const userLogResult = await pool.query(userLogQuery, [current_user_id]);
+
+
+    const matches = [];
+
+    for (const user of userLogResult.rows) {
+      const matchUserQuery = `SELECT * FROM users WHERE id = $1`;
+      const matchUserResult = await pool.query(matchUserQuery, [user.match_user_id]);
+      const matchUser = matchUserResult.rows[0];
+
+      //   get user last message from chat
+      const lastMessageQuery = `SELECT * FROM 
+      messages
+       WHERE (sender_id = $1 AND receiver_id = $2) OR (sender_id = $2 AND receiver_id = $1) ORDER BY created_at DESC LIMIT 1`;
+      const lastMessageResult = await pool.query(lastMessageQuery, [current_user_id, user.match_user_id]);
+
+      matches.push({
+        user_id: matchUser.id,
+        elo_level: matchUser.alo_level,
+        name: matchUser.name,
+        email: matchUser.email,
+        images: matchUser.images,
+        profile_image: matchUser.profile_image,
+        compatibilityScore: user.compatibilityscore,
+        lastMessage: lastMessageResult.rows[0]
       });
     }
 
@@ -1477,5 +1586,6 @@ module.exports = {
   updateUserOnlineStatus,
   getMatchUsersController,
   getMatchUsersFromLog,
-  getUsersforJokerCard
+  getUsersforJokerCard,
+  getMatchUsersForChat
 }; 

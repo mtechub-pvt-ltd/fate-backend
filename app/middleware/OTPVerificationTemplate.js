@@ -11,13 +11,13 @@ const OTPVerificationEmail = async (email, otp) => {
     const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
-            user: 'testing.mtechub@gmail.com',
-            pass: 'tvryoonxpxgsuzdg',
+            user: 'mtechub.info@gmail.com',
+            pass: 'qhsplxpbfyasghpa',
         },
     });
 
     const mailOptions = {
-        from: 'testing.mtechub@gmail.com',
+        from: 'mtechub.info@gmail.com',
         to: email,
         subject: 'Password Reset OTP',
         // text: `Your OTP for password reset is: ${otp}`,

@@ -164,6 +164,25 @@ app.delete('/messages/v1/deleteChat/:senderId/:receiverId', async (req, res) => 
     res.status(500).json({ error: true, msg: 'Internal Server Error' });
   }
 });
+app.put('/messages/v1/markAsRead', async (req, res) => {
+  const { senderId, receiverId } = req.body;
+
+  try {
+    const result = await pool.query(
+      'UPDATE messages SET read_status = true WHERE sender_id = $1 AND receiver_id = $2 AND read_status = false',
+      [senderId, receiverId]
+    );
+
+    if (result.rowCount > 0) {
+      res.json({ error: false, msg: 'Messages marked as read' });
+    } else {
+      res.status(404).json({ error: true, msg: 'No unread messages found' });
+    }
+  } catch (error) {
+    console.error('Error updating read status:', error);
+    res.status(500).json({ error: true, msg: 'Internal server error' });
+  }
+});
 
 
 
@@ -248,12 +267,17 @@ const io = socketIo(server);
 
 // add in db
 
-const saveMessage = async (roomId, senderId, receiverId, content) => {
-  const query = 'INSERT INTO messages (chat_room_id, sender_id, receiver_id, content) VALUES ($1, $2, $3, $4)';
-  await pool.query(query, [roomId, senderId, receiverId, content]);
+const saveMessage = async (roomId, senderId, receiverId, content, timestamp1, read_status) => {
+  console.log("timestamp1", timestamp1)
+  const query = 'INSERT INTO messages (chat_room_id, sender_id, receiver_id, content,timestamp1,read_status) VALUES ($1, $2, $3, $4, $5, $6)';
+  await pool.query(query, [roomId, senderId, receiverId, content, timestamp1, read_status]);
 };
 
 const getMessagesByRoom = async (roomId) => {
+  // mark all messages as read
+  const updateQuery = 'UPDATE messages SET read_status = true WHERE chat_room_id = $1 AND read_status = false';
+  await pool.query(updateQuery, [roomId]);
+
   const query = 'SELECT * FROM messages WHERE chat_room_id = $1 ORDER BY created_at ASC';
   const { rows } = await pool.query(query, [roomId]);
   return rows;
@@ -299,14 +323,14 @@ io.on('connection', (socket) => {
   });
 
   // Event for a user sending a message to the chat room
-  socket.on('sendMessage', async ({ room, message, senderId, receiverId }) => {
+  socket.on('sendMessage', async ({ room, message, senderId, receiverId, timestamp1, read_status }) => {
     // Get the roomId from the database
     const roomQuery = 'SELECT id FROM chat_rooms WHERE room_name = $1';
     const res = await pool.query(roomQuery, [room]);
     const roomId = res.rows[0].id;
 
     // Save the message to the database
-    await saveMessage(roomId, senderId, receiverId, message);
+    await saveMessage(roomId, senderId, receiverId, message, timestamp1, read_status);
 
     // Emit the message to the room
     io.to(room).emit('message', { content: message, senderId: senderId });
@@ -314,12 +338,54 @@ io.on('connection', (socket) => {
     // Note: The actual 'message' event payload should include the message ID and timestamp if needed
   });
 
+  // WebRTC signaling events
+  socket.on('offer', ({ room, offer }) => {
+    console.log(`Received offer for room: ${room}`);
+    socket.to(room).emit('offer', { offer });
+  });
+
+  socket.on('answer', ({ room, answer }) => {
+    console.log(`Received answer for room: ${room}`);
+    socket.to(room).emit('answer', { answer });
+  });
+
+  socket.on('ice-candidate', ({ room, candidate }) => {
+    console.log(`Received ICE candidate for room: ${room}`);
+    socket.to(room).emit('ice-candidate', { candidate });
+  });
 
   // Handle disconnection
   socket.on('disconnect', () => {
     console.log(`Socket ${socket.id} disconnected`);
     // Additional logic to handle user disconnection
   });
+  socket.on('joinVideoCall', async ({ user1Id, user2Id }) => {
+    const roomName = `video_call_${createRoomName(user1Id, user2Id)}`;
+
+    try {
+      // Check if the room already exists and get the ID
+      let roomQuery = 'SELECT id FROM video_call_rooms WHERE room_name = $1';
+      let res = await pool.query(roomQuery, [roomName]);
+
+      let roomId;
+      if (res.rows.length > 0) {
+        roomId = res.rows[0].id;
+      } else {
+        // If not, create a new room and get the ID
+        roomQuery = 'INSERT INTO video_call_rooms (room_name) VALUES ($1) RETURNING id';
+        res = await pool.query(roomQuery, [roomName]);
+        roomId = res.rows[0].id;
+      }
+
+      socket.join(roomName); // Join the room in Socket.io
+      socket.emit('joinedVideoCall', { roomId });
+    } catch (error) {
+      console.error('Error handling joinVideoCall event:', error);
+      // Handle the error, possibly by sending an error message back to the client
+    }
+  });
+
+
 });
 
 

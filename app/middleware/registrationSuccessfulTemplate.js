@@ -10,13 +10,15 @@ const sendConfirmationEmail = async (email) => {
     const transporter = nodemailer.createTransport({
         service: 'gmail',
         auth: {
-            user: 'testing.mtechub@gmail.com',
-            pass: 'tvryoonxpxgsuzdg',
+            user: 'mtechub.info@gmail.com',
+            pass: 'qhsplxpbfyasghpa',
+
+
         },
     });
 
     const mailOptions = {
-        from: 'testing.mtechub@gmail.com',
+        from: 'mtechub.info@gmail.com',
         to: email,
         subject: 'Registration Successfull',
         // text: 'Thank you for signing up! Your account has been successfully created.'
