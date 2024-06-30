@@ -1457,6 +1457,22 @@ const getMatchUsersForChat = async (req, res) => {
     }
 
 
+    // sort the matches by last message timestamp1 desc
+    matches.sort((a, b) => {
+      if (!a.lastMessage && !b.lastMessage) {
+        return 0;
+      }
+      if (!a.lastMessage) {
+        return 1;
+      }
+      if (!b.lastMessage) {
+        return -1;
+      }
+      return new Date(b.lastMessage.created_at) - new Date(a.lastMessage.created_at);
+    });
+
+
+
 
 
     // // Fetch matches for the current user
@@ -1513,6 +1529,81 @@ const getMatchUsersForChat = async (req, res) => {
     res.status(200).json(formattedResponse);
   } catch (error) {
     console.error("Error in fetching user matches:", error);
+    res.status(500).json({
+      error: true,
+      msg: "Internal server error",
+      details: error.message
+    });
+  }
+}
+const answerTheCall = async (req, res) => {
+  try {
+    const {
+      chat_room_name,
+      call_type,
+      start_time
+    } = req.body;
+
+    // Fetch current user details including Elo score
+    const anserCallQuery = `INSERT INTO call_history (call_type,start_time,chat_room_name) VALUES ($1,$2,$3) RETURNING *`;
+    const anserCallResult = await pool.query(anserCallQuery, [call_type, start_time, chat_room_name]);
+
+    if (anserCallResult.rowCount > 0) {
+      res.status(200).json({
+        error: false,
+        msg: "Call Answered",
+        data: anserCallResult.rows[0]
+      })
+    }
+    else {
+      res.status(500).json({
+        error: true,
+        msg: "Internal server error",
+        details: error.message
+      });
+    }
+
+
+  } catch (error) {
+    console.error("Error in fetching user matches:", error);
+    res.status(500).json({
+      error: true,
+      msg: "Internal server error",
+      details: error.message
+    });
+  }
+}
+const endTheCall = async (req, res) => {
+  try {
+    const {
+      chat_room_name,
+      call_type,
+      end_time
+    } = req.body;
+
+    // Fetch current user details including Elo score
+    // update the call history wihch has end itme emty and cal type and chat room name
+    const anserCallQuery = `UPDATE call_history SET end_time=$1 WHERE call_type=$2 AND chat_room_name=$3 RETURNING *`;
+    const anserCallResult = await pool.query(anserCallQuery, [end_time, call_type, chat_room_name]);
+
+    if (anserCallResult.rowCount > 0) {
+      res.status(200).json({
+        error: false,
+        msg: "Call Ended",
+        data: anserCallResult.rows[0]
+      })
+    }
+    else {
+      res.status(500).json({
+        error: true,
+        msg: "Internal server error",
+        details: error.message
+      });
+    }
+
+
+  } catch (error) {
+    console.error("Error:", error);
     res.status(500).json({
       error: true,
       msg: "Internal server error",
@@ -1587,5 +1678,7 @@ module.exports = {
   getMatchUsersController,
   getMatchUsersFromLog,
   getUsersforJokerCard,
-  getMatchUsersForChat
+  getMatchUsersForChat,
+  answerTheCall,
+  endTheCall
 }; 

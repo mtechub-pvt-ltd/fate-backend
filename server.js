@@ -187,77 +187,15 @@ app.put('/messages/v1/markAsRead', async (req, res) => {
 
 
 
-// Array of predefined prompt messages
-const promptMessages = [
-  "Passionate foodie seeking someone to explore new culinary delights with.",
-  "Adventure enthusiast seeking a partner in crime for hiking, camping, and spontaneous road trips.",
-  "Book lover looking for someone to share cozy nights in, discussing literature and sipping wine.",
-  "Music aficionado searching for a concert buddy to groove with at live shows.",
-  "Travel junkie seeking a fellow explorer to create unforgettable memories around the globe.",
-  "Fitness fanatic looking for a workout partner to motivate and challenge each other.",
-  "Tech enthusiast eager to geek out over the latest gadgets and binge-watch sci-fi series.",
-  "Animal lover seeking someone to cuddle with furry friends and explore pet-friendly spots.",
-  "Art aficionado hoping to find a muse to create, appreciate, and share cultural experiences.",
-  "Film buff seeking a popcorn partner to binge-watch classic films and discover hidden gems together."
-];
 
-// Function to send prompt message
-async function sendPromptMessage(sender_id, receiver_id) {
-  // Randomly select a prompt message from the array
-  const randomIndex = Math.floor(Math.random() * promptMessages.length);
-  const randomPrompt = promptMessages[randomIndex];
 
-  try {
-    const result = await pool.query(
-      'INSERT INTO chats (sender_id, receiver_id, prompt) VALUES ($1, $2, $3) RETURNING *',
-      [sender_id, receiver_id, randomPrompt]
-    );
 
-    io.emit('prompt message', { sender_id, receiver_id, prompt: randomPrompt });
-  } catch (error) {
-    console.error('Error inserting prompt message into database:', error);
-  }
-}
 
 
 
 // ######################################
 
-const OpenAI = require("openai")
 
-const openai = new OpenAI({
-  apiKey: "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",
-});
-
-
-app.post('/getResponse', async (req, res) => {
-  const {
-    sentence1,
-    sentence2
-  } = req.body
-  const content = "Can u tell me just percentage score of similarity between these 2 sentences";
-  const concatenatedStatement = `${content} \"${sentence1}\" , \"${sentence2}\"`;
-  console.log(concatenatedStatement)
-  const response = await openai.chat.completions.create({
-    model: "gpt-3.5-turbo",
-    messages: [
-      {
-        "role": "system",
-        "content": `${concatenatedStatement}`
-      },
-      {
-        "role": "user",
-        "content": "\n"
-      }
-    ],
-    temperature: 1,
-    max_tokens: 256,
-    top_p: 1,
-    frequency_penalty: 0,
-    presence_penalty: 0,
-  });
-  res.json(response)
-});
 
 
 // socker io implementation
@@ -339,28 +277,8 @@ io.on('connection', (socket) => {
   });
 
   // WebRTC signaling events
-  socket.on('offer', ({ room, offer }) => {
-    console.log(`Received offer for room: ${room}`);
-    socket.to(room).emit('offer', { offer });
-  });
-
-  socket.on('answer', ({ room, answer }) => {
-    console.log(`Received answer for room: ${room}`);
-    socket.to(room).emit('answer', { answer });
-  });
-
-  socket.on('ice-candidate', ({ room, candidate }) => {
-    console.log(`Received ICE candidate for room: ${room}`);
-    socket.to(room).emit('ice-candidate', { candidate });
-  });
-
-  // Handle disconnection
-  socket.on('disconnect', () => {
-    console.log(`Socket ${socket.id} disconnected`);
-    // Additional logic to handle user disconnection
-  });
-  socket.on('joinVideoCall', async ({ user1Id, user2Id }) => {
-    const roomName = `video_call_${createRoomName(user1Id, user2Id)}`;
+   socket.on('joinVideoCall', async ({ user1Id, user2Id }) => {
+    const roomName = createRoomName(user1Id, user2Id);
 
     try {
       // Check if the room already exists and get the ID
@@ -378,12 +296,35 @@ io.on('connection', (socket) => {
       }
 
       socket.join(roomName); // Join the room in Socket.io
-      socket.emit('joinedVideoCall', { roomId });
+      socket.emit('joinedVideoCall', { room: roomName }); // Send confirmation to the user
     } catch (error) {
       console.error('Error handling joinVideoCall event:', error);
       // Handle the error, possibly by sending an error message back to the client
     }
   });
+   socket.on('offer', ({ room, offer }) => {
+    console.log(`Received offer for room: ${room}`);
+    socket.to(room).emit('offer', { offer });
+  });
+
+  socket.on('answer', ({ room, answer }) => {
+    console.log(`Received answer for room: ${room}`);
+    socket.to(room).emit('answer', { answer });
+  });
+
+  socket.on('ice-candidate', ({ room, candidate }) => {
+    console.log(`Received ICE candidate for room: ${room}`);
+    socket.to(room).emit('ice-candidate', { candidate });
+  });
+
+ 
+
+  // Handle disconnection
+  socket.on('disconnect', () => {
+    console.log(`Socket ${socket.id} disconnected`);
+    // Additional logic to handle user disconnection
+  });
+  
 
 
 });

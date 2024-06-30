@@ -31,6 +31,8 @@ router.post("/v1/searchUserByName", userController.searchUserByName);
 router.get("/v1/getMatchUsers", userController.getMatchUsersController);
 router.get("/v1/getLogMatchUsers", userController.getMatchUsersFromLog);
 router.get("/v1/getLogMatchUsersForChat", userController.getMatchUsersForChat);
+router.post("/v1/answerTheCall", userController.answerTheCall);
+router.post("/v1/endTheCall", userController.endTheCall);
 // joker funciton
 router.get("/v1/getUsersforJokerCard", userController.getUsersforJokerCard);
 
