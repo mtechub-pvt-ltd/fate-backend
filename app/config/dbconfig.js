@@ -4,20 +4,25 @@ const fs = require('fs');
 
 // console.log("Fate")
 //const pool = new Pool({
-  //host: process.env.HOST,
- // port: process.env.PORT,
-  //user: process.env.USER,
+//host: process.env.HOST,
+// port: process.env.PORT,
+//user: process.env.USER,
 //  password: process.env.PASSWORD,
-  //database: process.env.DATABASE
+//database: process.env.DATABASE
 //});
 
- const pool = new Pool({
-   host: 'postgres-staging-projects.mtechub.com',
-   port: 5432,
-   user: 'fate_user',
-   password: 'mtechub123',
-   database: 'fate_db'
- });
+const pool = new Pool({
+  host: 'postgres-staging-projects.mtechub.com',
+  port: 5432,
+  user: 'fate_usama_user',
+  password: 'mtechub123',
+  database: 'fate_usama_db'
+  //  host: 'postgres-staging-projects.mtechub.com',
+  //  port: 5432,
+  //  user: 'fate_user',
+  //  password: 'mtechub123',
+  //  database: 'fate_db'
+});
 
 pool.on('error', (err) => {
   console.error('Unexpected error on idle client', err);

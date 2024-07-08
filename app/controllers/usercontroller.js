@@ -53,7 +53,7 @@ const usersignup = async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const insertUserQuery =
-      "INSERT INTO Users (email, password, device_id, role, subscription_type) VALUES ($1, $2, $3, $4, $5) RETURNING *";
+      "INSERT INTO Users (email, password, device_id, role,alo_level,subscription_type) VALUES ($1, $2, $3, $4,75, $5) RETURNING *";
     const newUser = await pool.query(insertUserQuery, [
       email,
       hashedPassword,
@@ -1452,7 +1452,8 @@ const getMatchUsersForChat = async (req, res) => {
         images: matchUser.images,
         profile_image: matchUser.profile_image,
         compatibilityScore: user.compatibilityscore,
-        lastMessage: lastMessageResult.rows[0]
+        lastMessage: lastMessageResult.rows[0],
+        role: user.role
       });
     }
 
@@ -1612,29 +1613,6 @@ const endTheCall = async (req, res) => {
   }
 }
 
-// pool.connect()
-//   .then(() => {
-//     // SQL query to update profile_image URLs
-//     const query = `
-//       UPDATE Users
-//       SET profile_image = REPLACE(profile_image, 'http://', 'https://')
-//       WHERE profile_image LIKE 'http://%';
-//     `;
-
-//     // Execute the query
-//     return pool.query(query);
-//   })
-//   .then((result) => {
-//     console.log('Profile images updated successfully:', result.rowCount, 'rows affected.');
-//   })
-//   .catch((error) => {
-//     console.error('Error updating profile images:', error);
-//   })
-//   .finally(() => {
-//     // Close the pool connection
-//     pool.end();
-//   });
-
 
 const getUsersforJokerCard = async (req, res) => {
   try {
@@ -1657,6 +1635,272 @@ const getUsersforJokerCard = async (req, res) => {
     });
   }
 }
+
+// new match algo 
+const newMatchAlgo = async (req, res) => {
+  try {
+    // Extract parameters
+    const { current_user_id } = req.query;
+    const numberOfCards = 5;
+
+    // Define roles
+    const roles = ["FATE", "KING", "JULIET", "10", "ACE"];
+
+    // Fetch current user details including Elo score
+    const currentUserQuery = `SELECT * FROM users WHERE id = $1`;
+    const currentUserResult = await pool.query(currentUserQuery, [current_user_id]);
+    const currentUser = currentUserResult.rows[0];
+    const currentUserElo = currentUser.alo_level;
+
+    // Define Elo score range
+    const eloRange = 5;
+    const minElo = currentUserElo - eloRange;
+    const maxElo = currentUserElo + eloRange;
+
+    // Fetch current user answers
+    const currentUserAnswersQuery = `SELECT * FROM answers WHERE user_id = $1`;
+    const currentUserAnswersResult = await pool.query(currentUserAnswersQuery, [current_user_id]);
+    const currentUserAnswers = currentUserAnswersResult.rows;
+
+    if (!currentUserAnswers || currentUserAnswers.length === 0) {
+      throw new Error("No answers found for the current user.");
+    }
+
+    // Fetch existing matches for the current user
+    const existingMatchesQuery = `
+      SELECT match_user_id, role, compatibilityScore
+      FROM user_logs
+      WHERE current_user_id = $1
+      ORDER BY role
+    `;
+    const existingMatchesResult = await pool.query(existingMatchesQuery, [current_user_id]);
+    const existingMatches = existingMatchesResult.rows;
+
+    // Prepare existing matches
+    let finalMatches = [];
+    const existingRoles = new Set();
+    if (existingMatches.length > 0) {
+      finalMatches = await Promise.all(
+        existingMatches.map(async (match) => {
+          existingRoles.add(match.role);
+          const matchUserQuery = `SELECT * FROM users WHERE id = $1`;
+          const matchUserResult = await pool.query(matchUserQuery, [match.match_user_id]);
+          const matchUser = matchUserResult.rows[0];
+          return {
+            user_id: matchUser.id,
+            elo_level: matchUser.alo_level,
+            name: matchUser.name,
+            email: matchUser.email,
+            images: matchUser.images,
+            profile_image: matchUser.profile_image,
+            compatibilityScore: match.compatibilityScore,
+            role: match.role,
+          };
+        })
+      );
+    }
+
+    // If the user already has all 5 roles assigned, return those matches
+    if (finalMatches.length === numberOfCards) {
+      finalMatches.sort((a, b) => roles.indexOf(a.role) - roles.indexOf(b.role));
+      return res.status(200).json({
+        error: false,
+        msg: "Top users fetched",
+        current_user_id: parseInt(current_user_id),
+        currentUser: {
+          id: currentUser.id,
+          elo_level: currentUserElo,
+          name: currentUser.name,
+          email: currentUser.email,
+          images: currentUser.images,
+          profile_image: currentUser.profile_image,
+        },
+        matches: finalMatches,
+      });
+    }
+
+    // Fetch potential matches within the Elo score range 
+
+    // 70-80
+    // male 
+    // 18-24 year old  > 30 random
+    // no one got match 
+
+    const fetchMatchesQuery = `
+      SELECT * FROM users
+      WHERE id != $1 AND alo_level BETWEEN $3 AND $4 AND id NOT IN (
+        SELECT match_user_id FROM user_logs WHERE current_user_id = $1
+      )
+      ORDER BY  RANDOM() , alo_level DESC
+      LIMIT $2`;
+    const matchesResult = await pool.query(fetchMatchesQuery, [current_user_id, numberOfCards, minElo, maxElo]);
+    const matches = matchesResult.rows;
+
+    // Calculate compatibility scores for each potential match
+    const processedMatches = await Promise.all(
+      matches.map(async (match) => {
+        const matchAnswersQuery = `SELECT * FROM answers WHERE user_id = $1`;
+        const matchAnswersResult = await pool.query(matchAnswersQuery, [match.id]);
+        const matchAnswers = matchAnswersResult.rows;
+
+        if (!matchAnswers || matchAnswers.length === 0) {
+          throw new Error(`No answers found for the match user with ID ${match.id}.`);
+        }
+
+        const compatibilityScore = calculateCompatibilityScore(currentUserAnswers, matchAnswers);
+
+        return {
+          user_id: match.id,
+          elo_level: match.alo_level,
+          name: match.name,
+          email: match.email,
+          images: match.images,
+          profile_image: match.profile_image,
+          compatibilityScore: compatibilityScore.toFixed(1),
+        };
+      })
+    );
+
+    // Sort matches by compatibility score in descending order
+    const sortedMatches = processedMatches.sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+
+    const userLogQueries = [];
+    const assignedUsers = new Set(existingMatches.map(match => match.match_user_id));
+
+    for (let i = 0; i < sortedMatches.length && finalMatches.length < numberOfCards; i++) {
+      const match = sortedMatches[i];
+
+      if (assignedUsers.has(match.user_id)) {
+        continue;
+      }
+
+      // Find the first missing role
+      const missingRole = roles.find(role => !existingRoles.has(role));
+
+      if (!missingRole) {
+        break;
+      }
+
+      userLogQueries.push(
+        pool.query(
+          "INSERT INTO user_logs (current_user_id, match_user_id, compatibilityScore, role) VALUES ($1, $2, $3, $4) ON CONFLICT (current_user_id, match_user_id) DO UPDATE SET compatibilityScore = EXCLUDED.compatibilityScore, role = EXCLUDED.role",
+          [current_user_id, match.user_id, match.compatibilityScore, missingRole]
+        )
+      );
+
+      userLogQueries.push(
+        pool.query(
+          "INSERT INTO user_logs (current_user_id, match_user_id, compatibilityScore, role) VALUES ($1, $2, $3, $4) ON CONFLICT (current_user_id, match_user_id) DO UPDATE SET compatibilityScore = EXCLUDED.compatibilityScore, role = EXCLUDED.role",
+          [match.user_id, current_user_id, match.compatibilityScore, missingRole]
+        )
+      );
+
+      finalMatches.push({
+        user_id: match.user_id,
+        elo_level: match.alo_level,
+        name: match.name,
+        email: match.email,
+        images: match.images,
+        profile_image: match.profile_image,
+        compatibilityScore: match.compatibilityScore,
+        role: missingRole,
+      });
+
+      assignedUsers.add(match.user_id);
+      existingRoles.add(missingRole);
+    }
+
+    await Promise.all(userLogQueries);
+
+    finalMatches.sort((a, b) => roles.indexOf(a.role) - roles.indexOf(b.role));
+
+    // Respond with the sorted matches and current user details
+    res.status(200).json({
+      error: false,
+      msg: "Top users fetched",
+      current_user_id: parseInt(current_user_id),
+      currentUser: {
+        id: currentUser.id,
+        elo_level: currentUserElo,
+        name: currentUser.name,
+        email: currentUser.email,
+        images: currentUser.images,
+        profile_image: currentUser.profile_image,
+      },
+      matches: finalMatches,
+    });
+  } catch (error) {
+    console.error("Error in newMatchAlgo:", error);
+    res.status(500).json({
+      error: true,
+      msg: "Internal server error",
+      details: error.message,
+    });
+  }
+};
+
+// disQualifyUser
+const disQualifyUser = async (req, res) => {
+  try {
+    // get data from post request
+    const {
+      user_id,
+      disqualify_user_id,
+      reason,
+    } = req.body;
+    //  reason to upper case and add _ in between
+    const upperReason = reason.toUpperCase().split(" ").join("_");
+
+    // insert data into disqualify table
+    const disqualifyUserQuery = `INSERT INTO disqualify_user (user_id,disqualify_user_id,reason) VALUES ($1,$2,$3) RETURNING *`;
+    const disqualifyUserResult = await pool.query(disqualifyUserQuery, [user_id, disqualify_user_id, upperReason]);
+
+    if (disqualifyUserResult.rowCount > 0) {
+
+      // remove from user logs
+      const deleteUserLogsQuery = `DELETE FROM user_logs WHERE current_user_id = $1 AND match_user_id = $2`;
+      const deleteUserLogsResult = await pool.query(deleteUserLogsQuery, [user_id, disqualify_user_id]);
+      const deleteUserLogsQuery1 = `DELETE FROM user_logs WHERE match_user_id = $1 AND current_user_id = $2`;
+      const deleteUserLogsResult1 = await pool.query(deleteUserLogsQuery1, [user_id, disqualify_user_id]);
+
+
+      if (upperReason === 'NOT_MY_TYPE_(LOOKS)') {
+        // decrease the elo level of the user
+        const userEloQuery = `SELECT * FROM users WHERE id = $1`;
+        const userEloResult = await pool.query(userEloQuery, [disqualify_user_id]);
+        const userElo = userEloResult.rows[0].alo_level;
+        const updatedElo = userElo - 1;
+        const updateEloQuery = `UPDATE users SET alo_level = $1 WHERE id = $2 RETURNING *`;
+        const updateEloResult = await pool.query(updateEloQuery, [updatedElo, disqualify_user_id]);
+      }
+
+
+
+      res.status(200).json({
+        error: false,
+        msg: "User Disqualified",
+        data: disqualifyUserResult.rows[0]
+      })
+    }
+    else {
+      res.status(500).json({
+        error: true,
+        msg: "Internal server error",
+        details: error.message
+      });
+    }
+
+  } catch (error) {
+
+    res.status(500).json({
+      error: true,
+      msg: "Internal server error",
+      details: error.message,
+    });
+  }
+};
+
+
 module.exports = {
   usersignup,
   usersignin,
@@ -1680,5 +1924,7 @@ module.exports = {
   getUsersforJokerCard,
   getMatchUsersForChat,
   answerTheCall,
-  endTheCall
+  endTheCall,
+  newMatchAlgo,
+  disQualifyUser
 }; 

@@ -29,6 +29,12 @@ router.put(
 );
 router.post("/v1/searchUserByName", userController.searchUserByName);
 router.get("/v1/getMatchUsers", userController.getMatchUsersController);
+// newMatchAlgo
+router.get("/v1/newMatchAlgo", userController.newMatchAlgo);
+router.post("/v1/disQualifyUser", userController.disQualifyUser);
+
+
+
 router.get("/v1/getLogMatchUsers", userController.getMatchUsersFromLog);
 router.get("/v1/getLogMatchUsersForChat", userController.getMatchUsersForChat);
 router.post("/v1/answerTheCall", userController.answerTheCall);
