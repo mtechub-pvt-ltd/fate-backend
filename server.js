@@ -7,6 +7,13 @@ const app = express();
 const port = 5021;
 const socketIo = require('socket.io');
 const http = require('http');
+const admin = require('firebase-admin');
+const serviceAccount = require('./firebase.json');
+
+// initialzie firebase admin
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
 
 dotenv.config();
 
@@ -185,7 +192,70 @@ app.put('/messages/v1/markAsRead', async (req, res) => {
 });
 
 
+// firebase api 
 
+app.post('/send-notification', async (req, res) => {
+  const { title, body, imageUrl, data } = req.body;
+  // const token = "fh1AgtTylk5jiayvkifOTo:APA91bEHCoM65vvG9PK66PUc1_HwxXIr8FxA-gM_NRakgeQbzfMmi6jhBAWjXz_MhEPVXde0thGW7jlxKPblhC0Afosd9x00hJGp0BTi2ymbT7v4hvlL5DWOQKB_tkdi2ZfP1RM-ymHP";
+  const token = "dqIdFtEC0keTryxmq6ce5a:APA91bEDIfVFwAZUVLBnlstCzPijO45fQkKoyCqEUKB9UCc1msZ6nQObTX1arjIGtGs79rKXi1WveEmpWjURqnxMsKf53KZKgfmcRYh43y0ieytfCvYWYLejI8xubhFlR1OV--TtBmx1";
+  const message = {
+    notification: {
+      title,
+      body,
+      imageUrl,
+    },
+    token, // Device token
+    data, // Optional: if you want to send additional data
+  };
+
+  try {
+    const response = await admin.messaging().send(message);
+
+    res.status(200).json({ message: 'Notification sent successfully', response });
+
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+const getUserFcmToken = async (userId) => {
+  const query = 'SELECT name,device_id FROM users WHERE id = $1';
+  const { rows } = await pool.query(query, [userId]);
+
+  const newData = rows[0];
+  return newData;
+};
+
+
+app.post('/initiate-call', async (req, res) => {
+  const { callerId, receiverId, callType } = req.body;
+
+  // Logic to fetch the receiver's FCM token from the database
+  const token = await getUserFcmToken(receiverId);
+
+  const message = {
+    notification: {
+      title: 'Incoming Call',
+      body: `You have an incoming ${callType.toLowerCase()} call from ${token?.name} , Tap to answer`,
+    },
+    token: token.device_id,
+    data: {
+      // to string
+      callerId: callerId?.toString() ? callerId?.toString() : 'null',
+      callType: callType?.toString() ? callType?.toString() : 'null',
+      callerName: token.name,
+    },
+  };
+
+  try {
+    const response = await admin.messaging().send(message);
+    res.status(200).json({ success: true, response });
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ success: false, error: 'Internal server error' });
+  }
+});
 
 
 
@@ -277,7 +347,7 @@ io.on('connection', (socket) => {
   });
 
   // WebRTC signaling events
-   socket.on('joinVideoCall', async ({ user1Id, user2Id }) => {
+  socket.on('joinVideoCall', async ({ user1Id, user2Id }) => {
     const roomName = createRoomName(user1Id, user2Id);
 
     try {
@@ -296,13 +366,16 @@ io.on('connection', (socket) => {
       }
 
       socket.join(roomName); // Join the room in Socket.io
+      // Emit the user-joined event to other users in the room
+      socket.to(roomName).emit('user-joined', { userId: socket.id, room: roomName });
+
       socket.emit('joinedVideoCall', { room: roomName }); // Send confirmation to the user
     } catch (error) {
       console.error('Error handling joinVideoCall event:', error);
       // Handle the error, possibly by sending an error message back to the client
     }
   });
-   socket.on('offer', ({ room, offer }) => {
+  socket.on('offer', ({ room, offer }) => {
     console.log(`Received offer for room: ${room}`);
     socket.to(room).emit('offer', { offer });
   });
@@ -317,14 +390,14 @@ io.on('connection', (socket) => {
     socket.to(room).emit('ice-candidate', { candidate });
   });
 
- 
+
 
   // Handle disconnection
   socket.on('disconnect', () => {
     console.log(`Socket ${socket.id} disconnected`);
     // Additional logic to handle user disconnection
   });
-  
+
 
 
 });

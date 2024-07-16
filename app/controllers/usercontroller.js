@@ -17,6 +17,16 @@ const use = require("@tensorflow-models/universal-sentence-encoder");
 let loginToken;
 let storeotp;
 
+const addUserToWaitingPool = async (user_id) => {
+  const query = `
+      INSERT INTO waiting_pool (user_id)
+      VALUES ($1)
+      ON CONFLICT (user_id) DO NOTHING
+  `;
+  await pool.query(query, [user_id]);
+};
+
+
 const usersignup = async (req, res) => {
   const { email, password, device_id, role } = req.body;
 
@@ -62,8 +72,9 @@ const usersignup = async (req, res) => {
       "silver",
     ]);
 
+    await addUserToWaitingPool(newUser.rows[0].id);
     // email template
-    await sendConfirmationEmail.sendConfirmationEmail(email);
+    // await sendConfirmationEmail.sendConfirmationEmail(email);
 
     res.status(201).json({
       msg: "Sign Up Successfull",
@@ -1838,67 +1849,95 @@ const newMatchAlgo = async (req, res) => {
     });
   }
 };
+const newMatchAlgo2 = async (req, res) => {
+
+};
 
 // disQualifyUser
 const disQualifyUser = async (req, res) => {
   try {
-    // get data from post request
-    const {
-      user_id,
-      disqualify_user_id,
-      reason,
-    } = req.body;
-    //  reason to upper case and add _ in between
-    const upperReason = reason.toUpperCase().split(" ").join("_");
+    const { user_id, disqualify_user_id, reason } = req.body;
 
-    // insert data into disqualify table
-    const disqualifyUserQuery = `INSERT INTO disqualify_user (user_id,disqualify_user_id,reason) VALUES ($1,$2,$3) RETURNING *`;
-    const disqualifyUserResult = await pool.query(disqualifyUserQuery, [user_id, disqualify_user_id, upperReason]);
+    console.log(`Disqualification request received: user_id=${user_id}, disqualify_user_id=${disqualify_user_id}, reason=${reason}`);
 
-    if (disqualifyUserResult.rowCount > 0) {
+    // Check if the current user has performed any disqualification action within the last 48 hours
+    const checkLastDisqualificationQuery = `
+      SELECT id 
+      FROM disqualify_user 
+      WHERE user_id = $1
+    `;
+    console.log(`Checking last disqualification action for user_id=${user_id}`);
+    const { rows } = await pool.query(checkLastDisqualificationQuery, [user_id]);
 
-      // remove from user logs
-      const deleteUserLogsQuery = `DELETE FROM user_logs WHERE current_user_id = $1 AND match_user_id = $2`;
-      const deleteUserLogsResult = await pool.query(deleteUserLogsQuery, [user_id, disqualify_user_id]);
-      const deleteUserLogsQuery1 = `DELETE FROM user_logs WHERE match_user_id = $1 AND current_user_id = $2`;
-      const deleteUserLogsResult1 = await pool.query(deleteUserLogsQuery1, [user_id, disqualify_user_id]);
-
-
-      if (upperReason === 'NOT_MY_TYPE_(LOOKS)') {
-        // decrease the elo level of the user
-        const userEloQuery = `SELECT * FROM users WHERE id = $1`;
-        const userEloResult = await pool.query(userEloQuery, [disqualify_user_id]);
-        const userElo = userEloResult.rows[0].alo_level;
-        const updatedElo = userElo - 1;
-        const updateEloQuery = `UPDATE users SET alo_level = $1 WHERE id = $2 RETURNING *`;
-        const updateEloResult = await pool.query(updateEloQuery, [updatedElo, disqualify_user_id]);
-      }
-
-
-
-      res.status(200).json({
-        error: false,
-        msg: "User Disqualified",
-        data: disqualifyUserResult.rows[0]
-      })
-    }
-    else {
-      res.status(500).json({
-        error: true,
-        msg: "Internal server error",
-        details: error.message
-      });
+    if (rows.length > 0) {
+      console.log(`User_id=${user_id} has already disqualified a user within the last 48 hours`);
+      return res.status(400).json({ error: true, msg: 'Cannot disqualify same user multiple times' });
     }
 
+    // Insert into disqualify_user table
+    const insertDisqualificationQuery = `
+      INSERT INTO disqualify_user (user_id, disqualify_user_id, reason)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `;
+    console.log(`Inserting disqualification record for user_id=${user_id} disqualify_user_id=${disqualify_user_id}`);
+    const { rows: disqualificationRows } = await pool.query(insertDisqualificationQuery, [user_id, disqualify_user_id, reason]);
+    const disqualificationResult = disqualificationRows[0];
+
+    // Update alo_level of disqualified user if reason is "Physically not my type"
+    if (reason === "Physically not my type") {
+      const updateAloLevelQuery = `
+        UPDATE Users
+        SET alo_level = alo_level - 1
+        WHERE id = $1
+      `;
+      console.log(`Updating alo_level for disqualified user_id=${disqualify_user_id}`);
+      await pool.query(updateAloLevelQuery, [disqualify_user_id]);
+    }
+
+    // Update disqualified_status of disqualified user
+    const updateDisqualifiedStatusQuery = `
+      UPDATE Users
+      SET disqualify_status = true
+      WHERE id = $1
+    `;
+    console.log(`Updating disqualified_status for disqualified user_id=${disqualify_user_id}`);
+    await pool.query(updateDisqualifiedStatusQuery, [disqualify_user_id]);
+
+    // Add both users to the blacklist for each other
+    const insertBlacklistQuery = `
+      INSERT INTO user_blacklist (user_id, blacklisted_user_id)
+      VALUES ($1, $2), ($2, $1)
+      ON CONFLICT (user_id, blacklisted_user_id) DO NOTHING
+    `;
+    console.log(`Inserting user_id=${user_id} and disqualify_user_id=${disqualify_user_id} into user_blacklist`);
+    await pool.query(insertBlacklistQuery, [user_id, disqualify_user_id]);
+
+    // Remove the disqualified user from the user log
+    const removeFromUserLogQuery = `
+      DELETE FROM user_logs
+      WHERE (current_user_id = $1 AND match_user_id = $2)
+      OR (current_user_id = $2 AND match_user_id = $1)
+    `;
+    console.log(`Removing user_id=${user_id} and disqualify_user_id=${disqualify_user_id} from user_logs`);
+    await pool.query(removeFromUserLogQuery, [user_id, disqualify_user_id]);
+
+    console.log(`User disqualification and blacklist process completed successfully for user_id=${user_id} and disqualify_user_id=${disqualify_user_id}`);
+
+    res.status(200).json({ error: false, msg: 'User disqualified successfully', data: disqualificationResult });
   } catch (error) {
-
-    res.status(500).json({
-      error: true,
-      msg: "Internal server error",
-      details: error.message,
-    });
+    console.error('Error disqualifying user:', error);
+    res.status(500).json({ error: true, msg: 'An error occurred while disqualifying user' });
   }
 };
+
+module.exports = {
+  disQualifyUser,
+};
+
+
+
+
 
 
 module.exports = {
@@ -1926,5 +1965,6 @@ module.exports = {
   answerTheCall,
   endTheCall,
   newMatchAlgo,
+  newMatchAlgo2,
   disQualifyUser
 }; 

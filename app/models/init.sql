@@ -215,3 +215,14 @@ CREATE TABLE IF NOT EXISTS video_call_rooms (
     id BIGSERIAL PRIMARY KEY,
     room_name TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS waiting_pool (
+    id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS user_blacklist (
+  user_id INT NOT NULL,
+  blacklisted_user_id INT NOT NULL,
+  PRIMARY KEY (user_id, blacklisted_user_id)
+);

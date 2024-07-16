@@ -5,48 +5,62 @@ const disqualifyuser = async (req, res) => {
     try {
         const { user_id, disqualify_user_id, reason } = req.body;
 
+        console.log(`Disqualification request received: user_id=${user_id}, disqualify_user_id=${disqualify_user_id}, reason=${reason}`);
+
         // Check if the current user has performed any disqualification action within the last 48 hours
         const checkLastDisqualificationQuery = `
-            SELECT id 
-            FROM disqualify_user 
-            WHERE user_id = $1 
-            
-        `;
-
-        // AND created_at > NOW() - INTERVAL '48 hours'
-
+      SELECT id 
+      FROM disqualify_user 
+      WHERE user_id = $1
+    `;
+        console.log(`Checking last disqualification action for user_id=${user_id}`);
         const { rows } = await pool.query(checkLastDisqualificationQuery, [user_id]);
 
         if (rows.length > 0) {
+            console.log(`User_id=${user_id} has already disqualified a user within the last 48 hours`);
             return res.status(400).json({ error: true, msg: 'Cannot disqualify same user multiple times' });
         }
 
         // Insert into disqualify_user table
         const insertDisqualificationQuery = `
-          INSERT INTO disqualify_user (user_id, disqualify_user_id, reason)
-          VALUES ($1, $2, $3)
-          RETURNING *
-        `;
+      INSERT INTO disqualify_user (user_id, disqualify_user_id, reason)
+      VALUES ($1, $2, $3)
+      RETURNING *
+    `;
+        console.log(`Inserting disqualification record for user_id=${user_id} disqualify_user_id=${disqualify_user_id}`);
         const { rows: disqualificationRows } = await pool.query(insertDisqualificationQuery, [user_id, disqualify_user_id, reason]);
         const disqualificationResult = disqualificationRows[0];
 
         // Update alo_level of disqualified user if reason is "Physically not my type"
         if (reason === "Physically not my type") {
             const updateAloLevelQuery = `
-              UPDATE Users
-              SET alo_level = alo_level - 1
-              WHERE id = $1
-            `;
+        UPDATE Users
+        SET alo_level = alo_level - 1
+        WHERE id = $1
+      `;
+            console.log(`Updating alo_level for disqualified user_id=${disqualify_user_id}`);
             await pool.query(updateAloLevelQuery, [disqualify_user_id]);
         }
 
         // Update disqualified_status of disqualified user
-        const updateDisqualifiedStatusQuery = `
-          UPDATE Users
-          SET disqualify_status = true
-          WHERE id = $1
-        `;
-        await pool.query(updateDisqualifiedStatusQuery, [disqualify_user_id]);
+        //     const updateDisqualifiedStatusQuery = `
+        //   UPDATE Users
+        //   SET disqualify_status = true
+        //   WHERE id = $1
+        // `;
+        //     console.log(`Updating disqualified_status for disqualified user_id=${disqualify_user_id}`);
+        //     await pool.query(updateDisqualifiedStatusQuery, [disqualify_user_id]);
+
+        // Add both users to the blacklist for each other
+        const insertBlacklistQuery = `
+      INSERT INTO user_blacklist (user_id, blacklisted_user_id)
+      VALUES ($1, $2), ($2, $1)
+      ON CONFLICT (user_id, blacklisted_user_id) DO NOTHING
+    `;
+        console.log(`Inserting user_id=${user_id} and disqualify_user_id=${disqualify_user_id} into user_blacklist`);
+        await pool.query(insertBlacklistQuery, [user_id, disqualify_user_id]);
+
+        console.log(`User disqualification and blacklist process completed successfully for user_id=${user_id} and disqualify_user_id=${disqualify_user_id}`);
 
         res.status(200).json({ error: false, msg: 'User disqualified successfully', data: disqualificationResult });
     } catch (error) {
@@ -54,6 +68,16 @@ const disqualifyuser = async (req, res) => {
         res.status(500).json({ error: true, msg: 'An error occurred while disqualifying user' });
     }
 };
+
+module.exports = {
+    disqualifyuser,
+};
+
+
+module.exports = {
+    disqualifyuser,
+};
+
 
 // const disqualifyuser = async (req, res) => {
 //     const { user_id, disqualify_user_id, reason } = req.body;

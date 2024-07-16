@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const userController = require("../../controllers/usercontroller");
+const userControllerNew = require("../../controllers/usercontrollerNew");
 
 router.post("/v1/usersignup", userController.usersignup);
 router.post("/v1/usersignin", userController.usersignin);
@@ -31,6 +32,7 @@ router.post("/v1/searchUserByName", userController.searchUserByName);
 router.get("/v1/getMatchUsers", userController.getMatchUsersController);
 // newMatchAlgo
 router.get("/v1/newMatchAlgo", userController.newMatchAlgo);
+router.get("/v1/newMatchAlgo2", userControllerNew.newMatchAlgo2);
 router.post("/v1/disQualifyUser", userController.disQualifyUser);
 
 
